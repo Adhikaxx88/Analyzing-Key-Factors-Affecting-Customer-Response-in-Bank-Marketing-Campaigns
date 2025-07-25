@@ -1,0 +1,973 @@
+---
+title: "Analisis Marketing Bank"
+author: "Adhika Gunawan"
+date: "2025-06-19"
+output: html_document
+---
+Explanation Video Link : https://drive.google.com/file/d/1QeiKose93qbtjcGGuV5tNLxArYXd-jCY/view?usp=sharing
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+  echo = FALSE,    
+  message = FALSE, 
+  warning = FALSE, 
+
+ 
+  fig.width = 7,   
+  fig.height = 5,  
+  dev = "png"     
+)
+```
+
+```{r}
+data = read.csv("C:\\Users\\andro\\OneDrive\\Documents\\FinalExam-2802438205-Adhika Gunawan\\data_A.csv",head=T,sep=",")
+```
+
+
+
+# 1. Data Quality and Preprocessing {.tabset}
+## a. Identify data quality issues
+### Missing value
+```{r}
+#missing value
+colSums(is.na(data))
+
+```
+
+### Duplicate records
+```{r}
+if (sum(duplicated(data)) == 0) {
+  print("No duplicated rows found.")
+}else {
+  print(paste("Found", sum(duplicated(data)), "duplicated rows."))
+}
+
+```
+### Inconsistent or unknown categories
+Display unique values for each categorical variables
+```{r}
+# Categorical Variables
+cat_cols <- c("job", "marital", "education", "default", "housing", "loan", "contact", "month", "day_of_week", "poutcome", "y")
+
+
+lapply(data[cat_cols], unique)
+```
+
+Count empty string values in 'job' column, this is inconssistent value ,"" should be unknown
+```{r}
+
+sum(data$job == "")
+```
+### Outliers or extreme values
+Identifying Outliers for age
+```{r}
+# Numerical Variables
+numerical_vars <- c("age")
+
+# make a dataframe
+outlier_summary <- data.frame(
+  Variable = character(),
+  Q1 = numeric(),
+  Q3 = numeric(),
+  IQR = numeric(),
+  Lower_Bound = numeric(),
+  Upper_Bound = numeric(),
+  Num_Outliers = integer(),
+  stringsAsFactors = FALSE
+)
+
+# Loop to count outliers
+for (var in numerical_vars) {
+  x <- data[[var]]
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  IQR_val <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * IQR_val
+  upper_bound <- Q3 + 1.5 * IQR_val
+  num_outliers <- sum(x < lower_bound | x > upper_bound, na.rm = TRUE)
+  
+  # adjust to summary table
+  outlier_summary <- rbind(outlier_summary, data.frame(
+    Variable = var,
+    Q1 = Q1,
+    Q3 = Q3,
+    IQR = IQR_val,
+    Lower_Bound = lower_bound,
+    Upper_Bound = upper_bound,
+    Num_Outliers = num_outliers
+  ))
+}
+
+# display
+outlier_summary
+```
+Identifying outliers for duration and campaign
+Identifying these 2 variables seperately from age because we use 0 as lowerbound
+Use 0 as lowerbound for these 2 variables because when I applied Q1 - 1.5*IQR  = lowerbound, the lowerbound become negative values. So  use 0 as lowerbound value.
+```{r}
+# Numerical Variables
+numerical_vars <- c("duration","campaign")
+
+# make a dataframe
+outlier_summary <- data.frame(
+  Variable = character(),
+  Q1 = numeric(),
+  Q3 = numeric(),
+  IQR = numeric(),
+  Lower_Bound = numeric(),
+  Upper_Bound = numeric(),
+  Num_Outliers = integer(),
+  stringsAsFactors = FALSE
+)
+
+# Loop to count outliers
+for (var in numerical_vars) {
+  x <- data[[var]]
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  IQR_val <- Q3 - Q1
+  lower_bound <- 0
+  upper_bound <- Q3 + 1.5 * IQR_val
+  num_outliers <- sum(x < lower_bound | x > upper_bound, na.rm = TRUE)
+  
+  # adjust to summary table
+  outlier_summary <- rbind(outlier_summary, data.frame(
+    Variable = var,
+    Q1 = Q1,
+    Q3 = Q3,
+    IQR = IQR_val,
+    Lower_Bound = lower_bound,
+    Upper_Bound = upper_bound,
+    Num_Outliers = num_outliers
+  ))
+}
+
+# display
+outlier_summary
+```
+
+
+### Noisy or irrelevant values 
+Count observations where 'pdays' is 999, which signifies 'not previously contacted'.
+```{r}
+
+sum(data$pdays == 999)
+```
+Define the columns we want to check for negative values inside "previous", "campaign", "age","duration",because these columns can't be negative values
+```{r}
+
+columns_to_check <- c("previous", "campaign", "age","duration")
+
+for (col_name in columns_to_check) {
+  count_negative <- sum(data[[col_name]] < 0, na.rm = TRUE)
+
+  # Print the column name and its corresponding count of negative values
+  cat(paste0(col_name, " : ", count_negative, "\n"))
+}
+```
+
+
+## b. Handle the issues that identified
+### Clean the dataset
+The duration variable contains 9 missing values, which account for less than 20% of the total observations. Therefore, we decided to delete the corresponding rows.
+After deletion : 
+```{r}
+#Handling Missing Value
+
+data <- data[!is.na(data$duration), ]
+
+colSums(is.na(data))
+```
+Handling inconsistent value "" inside job variables, replace it with "unknown"
+After Replace: 
+```{r}
+
+data$job[data$job == ""] <- "unknown"
+unique(data$job)
+```
+
+Replace outlier inside age with median value
+```{r}
+# Numerical Variables to process
+numerical_vars_age <- c("age") # Hanya fokus pada 'age'
+
+# Initialize the dataframe to store outlier summary for age
+outlier_summary_age <- data.frame(
+  Variable = character(),
+  Q1 = numeric(),
+  Q3 = numeric(),
+  IQR = numeric(),
+  Lower_Bound = numeric(),
+  Upper_Bound = numeric(),
+  Num_Outliers_Before_Replacement = integer(),
+  Num_Outliers_After_Replacement = integer(), # New column for outliers after replacement
+  stringsAsFactors = FALSE
+)
+
+# Loop to detect and replace outliers for 'age', and populate summary
+for (var in numerical_vars_age) {
+  # Get the column data
+  x_original <- data[[var]] # Assuming 'clean_data' is your main dataframe
+
+  # Calculate quartiles and IQR based on original data
+  Q1 <- quantile(x_original, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x_original, 0.75, na.rm = TRUE)
+  IQR_val <- Q3 - Q1
+
+  # Define outlier bounds based on the standard IQR method
+  calculated_lower_bound <- Q1 - 1.5 * IQR_val
+  upper_bound <- Q3 + 1.5 * IQR_val
+
+  # Adjust lower bound to be non-negative for 'age', as age cannot be negative
+  # This line ensures lower_bound is never less than 0, which is logical for age.
+  lower_bound <- max(0, calculated_lower_bound)
+
+  # Identify outliers (indices) in the ORIGINAL data
+  outlier_indices <- which(x_original < lower_bound | x_original > upper_bound)
+  num_outliers_before <- length(outlier_indices) # Count outliers before replacement
+
+  # Calculate the median for replacement (from original data)
+  median_val <- median(x_original, na.rm = TRUE)
+
+  # Create a temporary copy of the variable to perform replacement
+  x_modified <- x_original
+
+  # Replace outliers with the median value in the temporary copy
+  if (num_outliers_before > 0) {
+    x_modified[outlier_indices] <- median_val
+  }
+  
+  # Update the original clean_data dataframe with the modified column
+  data[[var]] <- x_modified
+
+  # Re-identify outliers AFTER replacement (should be 0 if replacement worked correctly)
+  num_outliers_after <- sum(x_modified < lower_bound | x_modified > upper_bound, na.rm = TRUE)
+  
+  # Add results to the summary dataframe
+  outlier_summary_age <- rbind(outlier_summary_age, data.frame(
+    Variable = var,
+    Q1 = Q1,
+    Q3 = Q3,
+    IQR = IQR_val,
+    Lower_Bound = lower_bound,
+    Upper_Bound = upper_bound,
+    Num_Outliers_Before_Replacement = num_outliers_before,
+    Num_Outliers_After_Replacement = num_outliers_after # Add count after replacement
+  ))
+}
+
+# Display the summary of outliers found for 'age' (before and after replacement)
+print(outlier_summary_age)
+
+# Display a few rows of the modified clean_data to verify replacement (optional)
+# head(clean_data)
+```
+
+Replace outlier inside campaign with median value
+
+```{r}
+# Numerical Variables to process
+numerical_vars <- c ("campaign","duration")
+
+# Initialize the dataframe to store outlier summary
+outlier_summary <- data.frame(
+  Variable = character(),
+  Q1 = numeric(),
+  Q3 = numeric(),
+  IQR = numeric(),
+  Lower_Bound = numeric(),
+  Upper_Bound = numeric(),
+  Num_Outliers_Before_Replacement = integer(),
+  Num_Outliers_After_Replacement = integer(), # New column for outliers after replacement
+  stringsAsFactors = FALSE
+)
+
+# Loop to detect and replace outliers, and populate summary
+for (var in numerical_vars) {
+  # Get the column data
+  x_original <- data[[var]] # Store original data for calculations
+  
+  # Calculate quartiles and IQR based on original data
+  Q1 <- quantile(x_original, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x_original, 0.75, na.rm = TRUE)
+  IQR_val <- Q3 - Q1
+
+  # Define outlier bounds based on your specified criteria (from original data)
+  lower_bound <- 0 # Lower bound is explicitly 0
+  upper_bound <- Q3 + 1.5 * IQR_val # Upper bound is Q3 + 1.5 * IQR
+
+  # Identify outliers (indices) in the ORIGINAL data
+  outlier_indices <- which(x_original < lower_bound | x_original > upper_bound)
+  num_outliers_before <- length(outlier_indices) # Count outliers before replacement
+
+  # Calculate the median for replacement (from original data)
+  median_val <- median(x_original, na.rm = TRUE)
+
+  # Create a temporary copy of the variable to perform replacement
+  x_modified <- x_original
+
+  # Replace outliers with the median value in the temporary copy
+  if (num_outliers_before > 0) {
+    x_modified[outlier_indices] <- median_val
+  }
+  
+  # Update the original clean_data dataframe with the modified column
+  data[[var]] <- x_modified
+
+  # Re-identify outliers AFTER replacement
+  # This should ideally be 0 if replacement worked correctly
+  num_outliers_after <- sum(x_modified < lower_bound | x_modified > upper_bound, na.rm = TRUE)
+  
+  # Add results to the summary dataframe
+  outlier_summary <- rbind(outlier_summary, data.frame(
+    Variable = var,
+    Q1 = Q1,
+    Q3 = Q3,
+    IQR = IQR_val,
+    Lower_Bound = lower_bound,
+    Upper_Bound = upper_bound,
+    Num_Outliers_Before_Replacement = num_outliers_before,
+    Num_Outliers_After_Replacement = num_outliers_after # Add count after replacement
+  ))
+}
+
+# Display the summary of outliers found (before and after replacement)
+print(outlier_summary)
+
+# Display a few rows of the modified clean_data to verify replacement (optional)
+# head(clean_data)
+
+
+```
+
+
+Handling Noisy or irrelevant values
+The value 999 in 'pdays', which indicates the client was not previously contacted, was replaced with NA because it is not a valid numeric value for analysis; we also created a binary variable 'was_previously_contacted' to retain this important information.
+
+Create a new binary variable indicating if the client was previously contacted
+If 'pdays' is NA (previously not contacted), then mark as "no", otherwise "yes"
+After create new column/variable : 
+
+```{r}
+
+
+data$pdays[data$pdays == 999] = NA
+
+
+data$was_previously_contacted = ifelse(is.na(data$pdays), "no", "yes")
+colnames(data)
+```
+
+
+```{r}
+#convert categorical variables into factor variables
+data$job <- as.factor(data$job)
+data$marital <- as.factor(data$marital)
+data$education <- as.factor(data$education)
+data$default <- as.factor(data$default)
+data$housing <- as.factor(data$housing)
+data$loan <- as.factor(data$loan)
+data$contact <- as.factor(data$contact)
+data$month <- factor(data$month, levels = c("jan", "feb", "mar", "apr", "may", "jun", 
+                                            "jul", "aug", "sep", "oct", "nov", "dec"))
+data$day_of_week <- as.factor(data$day_of_week)
+data$poutcome <- as.factor(data$poutcome)
+data$y <- as.factor(data$y)
+data$was_previously_contacted <- as.factor(data$was_previously_contacted)
+
+```
+
+### Explain your cleaning decisions (e.g., whether you imputed, removed, or recoded values).
+
+To clean the dataset, several preprocessing steps were applied. First, the duration variable contained 9 missing values, which accounted for less than 20% of the total data. These rows were removed to maintain the integrity of the analysis. Next, we addressed inconsistent values in the job variable by replacing empty string entries ("") with "unknown" to ensure consistency within categorical levels. For numerical variables such as age outliers were identified using the Interquartile Range (IQR) method and replaced with the median to reduce skewness and preserve data stability.But for duration and campaign the lower bound should be 0 because when we use Q1-1.5*IQR the value of lowerbound become negative value.
+
+The pdays variable included the special value 999, which indicates that the client was not previously contacted. Since this value does not represent an actual number of days, it was treated as a noisy value and replaced with NA. To retain the information, a new binary variable was_previously_contacted was created to indicate whether the client had been contacted in a previous campaign.
+
+We intentionally skipped outlier handling for the previous variable, as it is heavily dominated by zeros, causing any non-zero values to be flagged as outliers despite being valid. Similarly, we did not treat outliers in the pdays variable after replacing 999 with NA, because the few remaining valid values are extremely sparse and would be incorrectly identified as outliers due to the skewed distribution.
+
+### Create a cleaned version of the dataset called clean_data.
+```{r}
+# Create a cleaned version of the dataset after all preprocessing
+clean_data <- data
+```
+
+
+## c. Summary statistics and initial exploration
+### Calculate central tendency and variability for numerical columns
+```{r}
+#numerical variables
+numerical_vars <- c("age", "duration", "campaign", "pdays", "previous")
+
+# Define a function to calculate central tendency and variability
+summary_stats <- function(x) {
+  c(
+    Min = min(x, na.rm = TRUE),               # Minimum value
+    Q1 = quantile(x, 0.25, na.rm = TRUE),     # First quartile (25th percentile)
+    Median = median(x, na.rm = TRUE),         # Median (50th percentile)
+    Mean = mean(x, na.rm = TRUE),             # Mean (average)
+    Q3 = quantile(x, 0.75, na.rm = TRUE),     # Third quartile (75th percentile)
+    Max = max(x, na.rm = TRUE),               # Maximum   value
+    SD = sd(x, na.rm = TRUE)                  # Standard deviation
+  )
+}
+
+# Apply the summary function to each selected variable
+summary_table <- as.data.frame(t(sapply(clean_data[numerical_vars], summary_stats)))
+
+# Display the summary table
+print(summary_table)
+
+```
+### Create a summary table to explore one variable across categories
+```{r}
+library(dplyr)
+```
+
+
+A conversion rate serves as a standardized and highly interpretable metric that we utilize for comparison against various other variables within our dataset. By calculating the percentage of successful outcomes (subscribers) relative to different client segments, we can effectively measure and contrast the campaign's performance across diverse groups defined by attributes like job type, age group, previous campaign outcomes, or credit status. This comparative approach allows us to identify which client characteristics or historical interactions lead to higher or lower conversion rates, thereby pinpointing influential factors and informing more targeted marketing strategies.
+
+Conversion Rate (y) by Client's Marital Status (marital)
+```{r}
+#conversion rate = subscribed count (yes) /total count (yes+no)
+
+
+summary_conversion_by_marital <- clean_data %>%
+  group_by(marital) %>%
+  summarise(
+    Total_Clients = n(),
+    Subscribed_Count = sum(y == "yes"),
+    Conversion_Rate_Percent = round((sum(y == "yes") / n()) * 100, 2)
+  ) %>%
+  arrange(desc(Conversion_Rate_Percent))
+
+summary_conversion_by_marital
+
+```
+
+This table illustrates client conversion rates based on their marital status. Excluding the 'unknown' category, single clients exhibit the highest conversion rate at 15.35%, significantly outperforming married clients who convert at a lower rate of 10.35%. This suggests that marital status plays a role in a client's propensity to subscribe.
+
+Conversion Rate (y) by Client's Credit Default Status (default)
+```{r}
+
+summary_conversion_by_default <- clean_data %>%
+  group_by(default) %>%
+  summarise(
+    Total_Clients = n(),
+    Subscribed_Count = sum(y == "yes"),
+    Conversion_Rate_Percent = round((sum(y == "yes") / n()) * 100, 2)
+  ) %>%
+  arrange(desc(Conversion_Rate_Percent))
+
+summary_conversion_by_default
+```
+
+This table shows client conversion rates based on their credit default status. Clients with no credit default ("no") have a significantly higher conversion rate of 13.62% compared to clients with an "unknown" default status, who convert at a much lower rate of 5.46%. This indicates that clients without a known credit default are substantially more likely to subscribe.
+
+Conversion Rate (y) by Client's Housing Loan Status (housing)
+```{r}
+
+summary_conversion_by_housing <- clean_data %>%
+  group_by(housing) %>%
+  summarise(
+    Total_Clients = n(),
+    Subscribed_Count = sum(y == "yes"),
+    Conversion_Rate_Percent = round((sum(y == "yes") / n()) * 100, 2)
+  ) %>%
+  arrange(desc(Conversion_Rate_Percent))
+
+summary_conversion_by_housing
+```
+This table presents conversion rates based on clients' housing loan status. Clients with a housing loan ("yes") show the highest conversion rate at 12.34%, slightly outperforming those without a loan ("no") at 11.42%. This indicates that having a housing loan is associated with a slightly higher likelihood of conversion.
+
+Conversion Rate (y) by Client's Personal Loan Status (loan)
+```{r}
+
+summary_conversion_by_loan <- clean_data %>%
+  group_by(loan) %>%
+  summarise(
+    Total_Clients = n(),
+    Subscribed_Count = sum(y == "yes"),
+    Conversion_Rate_Percent = round((sum(y == "yes") / n()) * 100, 2)
+  ) %>%
+  arrange(desc(Conversion_Rate_Percent))
+
+summary_conversion_by_loan
+```
+This table summarizes client conversion rates based on their personal loan status. Clients without a personal loan ("no") show a higher conversion rate at 12.13% compared to clients with a personal loan ("yes"), who convert at 10.79%. This suggests that not having a personal loan is associated with a slightly increased likelihood of conversion.
+
+Conversion Rate (y) by Client's Job Type (job)
+```{r}
+
+summary_conversion_by_job <- clean_data %>%
+  group_by(job) %>%
+  summarise(
+    Total_Clients = n(),
+    Subscribed_Count = sum(y == "yes"),
+    Conversion_Rate_Percent = round((sum(y == "yes") / n()) * 100, 2)
+  ) %>%
+  arrange(desc(Conversion_Rate_Percent))
+
+summary_conversion_by_job
+```
+This table comprehensively displays conversion rates across various client job types. Remarkably, 'student' and 'retired' clients achieve the highest conversion rates, at 32.95% and 25.97% respectively. Conversely, 'blue-collar' and 'services' roles exhibit the lowest conversion rates, at 8.00% and 8.62% respectively, highlighting a strong influence of profession on subscription likelihood.
+
+Conversion Rate (y) by Client's Education Level (education)
+```{r}
+
+summary_conversion_by_education <- clean_data %>%
+  group_by(education) %>% # Hanya mengelompokkan berdasarkan 'education'
+  summarise(
+    Total_Clients = n(),
+    Subscribed_Count = sum(y == "yes"),
+    Conversion_Rate_Percent = round((sum(y == "yes") / n()) * 100, 2)
+  ) %>%
+  arrange(desc(Conversion_Rate_Percent))
+
+summary_conversion_by_education
+```
+This table illustrates conversion rates based on client education levels, excluding the 'unknown' category. University degree holders show the highest conversion at 15.05%, suggesting a positive correlation between higher education and subscription likelihood. Conversely, lower education levels like 'illiterate' (0%) and 'basic.9y' (8.06%) exhibit significantly lower conversion rates, indicating that education level plays a notable role in campaign success.
+
+Conversion Rate (y) by Outcome of Previous Campaign (poutcome)
+```{r}
+
+summary_conversion_by_poutcome <- clean_data %>%
+  group_by(poutcome) %>%
+  summarise(
+    Total_Clients = n(),
+    Subscribed_Count = sum(y == "yes"),
+    Conversion_Rate_Percent = round((sum(y == "yes") / n()) * 100, 2)
+  ) %>%
+  arrange(desc(Conversion_Rate_Percent))
+
+summary_conversion_by_poutcome
+```
+Previous Contact Intensity for Clients with Previous Success (poutcome = "success")
+```{r}
+
+summary_previous_for_success_poutcome <- clean_data %>%
+  filter(poutcome == "success") %>% # Hanya fokus pada klien yang sebelumnya sukses
+  summarise(
+    Total_Successful_Clients = n(),
+    Mean_Previous_Contacts = round(mean(previous, na.rm = TRUE), 1),
+    Median_Previous_Contacts = median(previous, na.rm = TRUE),
+    SD_Previous_Contacts = round(sd(previous, na.rm = TRUE), 1)
+  )
+
+summary_previous_for_success_poutcome
+```
+This output presents two key insights. Firstly, clients from previous successful campaigns exhibit a remarkably high conversion rate of 69.60%, significantly outperforming those from failed (14.98%) or nonexistent (9.32%) previous campaigns. Secondly, for clients with previous campaign success, the average number of prior contacts was quite low, at only 1.6, suggesting that a positive past outcome may reduce the need for extensive new campaign engagement.
+
+Age Statistics (including Quartiles and Variance) by Subscription Outcome (y)
+```{r}
+
+summary_age_by_subscription_extended <- clean_data %>%
+  group_by(y) %>%
+  summarise(
+    Total_Clients = n(),
+    Mean_Age = round(mean(age, na.rm = TRUE), 1),
+    Median_Age = median(age, na.rm = TRUE),
+    Q1_Age = round(quantile(age, 0.25, na.rm = TRUE), 1), # Q1 (25th percentile)
+    Q3_Age = round(quantile(age, 0.75, na.rm = TRUE), 1), # Q3 (75th percentile)
+    SD_Age = round(sd(age, na.rm = TRUE), 1),
+    Variance_Age = round(var(age, na.rm = TRUE), 1) # Variance
+  ) %>%
+  arrange(y)
+
+summary_age_by_subscription_extended
+```
+This table shows us statistics about client ages, separated by whether they subscribed or not. While both groups have a similar average age (around 39-40), people who did subscribe actually have a wider variety of ages. This means subscribers are a more diverse age group than those who didn't subscribe.
+
+Campaign Contacts Statistics (including Quartiles and Variance) by Subscription Outcome (y)
+```{r}
+
+summary_campaign_by_subscription_extended <- clean_data %>%
+  group_by(y) %>% # Group by subscription outcome (yes/no)
+  summarise(
+    Total_Clients = n(), # Total number of clients in each group
+    Mean_Campaign = round(mean(campaign, na.rm = TRUE), 1), # Mean of campaign contacts
+    Median_Campaign = median(campaign, na.rm = TRUE), # Median of campaign contacts
+    Q1_Campaign = round(quantile(campaign, 0.25, na.rm = TRUE), 1), # First Quartile (25th percentile) of campaign contacts
+    Q3_Campaign = round(quantile(campaign, 0.75, na.rm = TRUE), 1), # Third Quartile (75th percentile) of campaign contacts
+    SD_Campaign = round(sd(campaign, na.rm = TRUE), 1), # Standard Deviation of campaign contacts
+    Variance_Campaign = round(var(campaign, na.rm = TRUE), 1) # Variance of campaign contacts
+  ) %>%
+  arrange(y) # Arrange by y (no, yes)
+
+summary_campaign_by_subscription_extended
+```
+This table summarizes campaign contact statistics, including quartiles and variance, grouped by subscription outcome. Notably, non-subscribing clients (7249 clients) experienced a slightly higher average number of campaign contacts (2.6) and a broader distribution (Q1=1, Q3=3) compared to subscribing clients (979 clients), who had a lower average (2.1) and a tighter distribution (Q1=1, Q3=2). This indicates that successful subscriptions were associated with fewer and less dispersed campaign interactions.
+
+Table: Age Statistics by Job Type
+```{r}
+
+summary_age_by_job <- clean_data %>%
+  group_by(job) %>% # Group by job type
+  summarise(
+    Total_Clients = n(),
+    Mean_Age = round(mean(age, na.rm = TRUE), 1),
+    Median_Age = median(age, na.rm = TRUE),
+    Q1_Age = round(quantile(age, 0.25, na.rm = TRUE), 1),
+    Q3_Age = round(quantile(age, 0.75, na.rm = TRUE), 1),
+    SD_Age = round(sd(age, na.rm = TRUE), 1),
+    Variance_Age = round(var(age, na.rm = TRUE), 1)
+  ) %>%
+  arrange(job) # Arrange by job type (alphabetical)
+
+summary_age_by_job
+```
+Based on the data, admin. is the job category with the highest number of clients, totaling 2082, and an average age of 38.1 years. Conversely, unemployed represents the smallest client group with only 209 individuals, who have an average age of 40.4 years.
+
+Average Contact Duration (duration) by Subscription Outcome (y) and Contact Type (contact)
+```{r}
+
+summary_duration_by_contact_and_outcome <- clean_data %>%
+  group_by(contact, y) %>%
+  summarise(
+    Total_Calls = n(),
+    Mean_Duration_Seconds = round(mean(duration, na.rm = TRUE), 1),
+    Median_Duration_Seconds = median(duration, na.rm = TRUE)
+  ) %>%
+  arrange(y, desc(Mean_Duration_Seconds)) # Sort by outcome (y) and then by mean duration descending
+
+summary_duration_by_contact_and_outcome
+```
+
+Conversion Rate (y) by Contact Type (cellular vs telephone)
+```{r}
+
+summary_success_rate_by_contact_type <- clean_data %>%
+  group_by(contact) %>% # Mengelompokkan hanya berdasarkan jenis kontak
+  summarise(
+    Total_Clients_Contacted = n(), # Jumlah total klien yang dihubungi dengan cara ini
+    Subscribed_Count = sum(y == "yes"), # Jumlah klien yang berlangganan
+    Conversion_Rate_Percent = round((sum(y == "yes") / n()) * 100, 2) # Tingkat konversi dalam persentase
+  ) %>%
+  arrange(desc(Conversion_Rate_Percent)) # Mengurutkan berdasarkan tingkat konversi (menurun)
+
+summary_success_rate_by_contact_type
+```
+The marketing campaign conducted via cellular (mobile phone) channels is proven to be significantly more effective in converting clients into term deposit subscribers compared to telephone (landline) channels. This indicates that investing in and focusing on communication via cellular will yield more optimal conversion results.
+
+# 2. Relationship Analysis  {.tabset}
+## a.  Explore variable relationships
+### three variables that might influence the campaign outcome (y)
+1. poutcome (Outcome of Previous Campaign): This variable shows the most dramatic difference in conversion rates. Clients from previous successful campaigns convert at a massive 69.60%, vastly outperforming those from failed (14.98%) or nonexistent (9.32%) campaigns. This indicates a very strong positive influence of prior success on current campaign outcome.
+
+2. job (Client's Job Type): This variable reveals significant disparities in conversion rates across different professions. Students (32.95%) and retired individuals (25.97%) show exceptionally high conversion rates, while 'blue-collar' (8.00%) and 'services' (8.62%) workers have very low rates. This suggests that a client's occupation is a key indicator of their likelihood to subscribe.
+
+3. default (Client's Credit Default Status): Clients with no credit default ('no') convert at a rate of 13.62%, which is significantly higher than those with an 'unknown' default status (5.46%). While there's no 'yes' category for default provided in the insights, the clear difference between 'no' and 'unknown' implies that financial reliability (or lack of known default) plays a notable role in conversion.
+
+### Use cross-tabulation (for categorical) and grouped summaries.
+Cross-tabulation is employed for analyzing poutcome, job, and default as it effectively reveals the relationship between these categorical variables and the binary campaign outcome (y). This method provides the raw counts of clients falling into each specific combination of categories (e.g., how many "students" subscribed versus didn't), offering crucial context to the data volume behind each group. Complementing this, grouped summaries are also utilized to directly calculate and highlight the precise conversion rates for each category. While cross-tabulation offers the detailed breakdown of counts, the grouped summary distills this information into a concise, easily comparable percentage, illuminating the significant disparities in subscription likelihood across different previous campaign outcomes, job types, and credit default statuses. This combined approach allows for both a granular understanding of client distribution and a clear, focused view of performance metrics.
+
+cross-tabulation for variable poutcome and y
+```{r}
+
+table1 <- table(clean_data$poutcome, clean_data$y)
+table1
+```
+chisquare test for variable poutcome and y
+```{r}
+
+
+chisq.test(table1)
+```
+H0 = There isn't correlation between poutcome and y
+H1 = There is correlation between poutcome and y
+
+P value < 0.05 = There is strong correlation between poutcome and y, reject H0
+
+cross-tabulation for variable job and y
+```{r}
+
+table2 <- table(clean_data$job, clean_data$y)
+table2
+```
+chisquare test for variable job and y
+```{r}
+
+chisq.test(table2)
+```
+H0 = There isn't correlation between job type and y
+H1 = There is correlation between job type and y
+
+P value < 0.05 = There is strong correlation between job type and y, reject H0
+
+cross-tabulation for variable default and y
+```{r}
+
+table3 <- table(clean_data$default, clean_data$y)
+table3
+```
+chisquare test for variable default and y
+```{r}
+
+chisq.test(table3)
+```
+H0 = There isn't correlation between default and y
+H1 = There is correlation between default and y
+
+P value < 0.05 = There is strong correlation between default and y, reject H0
+
+Poutcome grouped summaries
+```{r}
+
+summary_conversion_by_poutcome <- clean_data %>%
+  group_by(poutcome) %>%
+  summarise(
+    Total_Clients = n(),
+    Subscribed_Count = sum(y == "yes"),
+    Conversion_Rate_Percent = round((sum(y == "yes") / n()) * 100, 2)
+  ) %>%
+  arrange(desc(Conversion_Rate_Percent))
+
+summary_conversion_by_poutcome
+
+```
+Job type grouped summaries
+```{r}
+
+summary_conversion_by_job <- clean_data %>%
+  group_by(job) %>%
+  summarise(
+    Total_Clients = n(),
+    Subscribed_Count = sum(y == "yes"),
+    Conversion_Rate_Percent = round((sum(y == "yes") / n()) * 100, 2)
+  ) %>%
+  arrange(desc(Conversion_Rate_Percent))
+
+summary_conversion_by_job
+```
+default grouped summaries
+```{r}
+
+summary_conversion_by_default <- clean_data %>%
+  group_by(default) %>%
+  summarise(
+    Total_Clients = n(),
+    Subscribed_Count = sum(y == "yes"),
+    Conversion_Rate_Percent = round((sum(y == "yes") / n()) * 100, 2)
+  ) %>%
+  arrange(desc(Conversion_Rate_Percent))
+
+summary_conversion_by_default
+```
+
+### Patterns and Trend
+
+For poutcome, job, and default, the p-values from the Chi-Square tests are all less than 2.2e-16. This is an extremely small value, well below the common significance threshold (0.05). This indicates that we can very confidently conclude there is a statistically significant relationship between each of these variables and the campaign conversion outcome; the observed differences in conversion rates among their categories are not due to random chance. Specifically:
+
+poutcome (Outcome of Previous Campaign)
+This variable shows the most dramatic difference in conversion rates. Clients from previous successful campaigns convert at a massive 69.60%, vastly outperforming those from failed (14.98%) or nonexistent (9.32%) campaigns. This indicates a very strong positive influence of prior success on current campaign outcome.
+
+job (Client's Job Type)
+This variable reveals significant disparities in conversion rates across different professions. Students (32.95%) and retired individuals (25.97%) show exceptionally high conversion rates, while 'blue-collar' (8.00%) and 'services' (8.62%) workers have very low rates. This suggests that a client's occupation is a key indicator of their likelihood to subscribe.
+
+default (Client's Credit Default Status)
+Clients with no credit default ('no') convert at a rate of 13.62%, which is significantly higher than those with an 'unknown' default status (5.46%). While there's no 'yes' category for default provided in the insights, the clear difference between 'no' and 'unknown' implies that financial reliability (or lack of known default) plays a notable role in conversion.
+
+## b. Feature engineering
+### Create 3 new variables to enhance your analysis
+```{r}
+#age_group with levels: "<30", "30–50", ">50"
+clean_data <- clean_data %>%
+  mutate(age_group = cut(age,
+                         breaks = c(0, 29, 50, Inf), 
+                         labels = c("<30", "30-50", ">50"),
+                         right = TRUE,
+                         include.lowest = TRUE))
+```
+
+```{r}
+#recency_level based on pdays: "never", "recent", "old"
+clean_data <- clean_data %>%
+  mutate(recency_level = case_when(
+    is.na(pdays) ~ "never",
+    pdays < 10   ~ "recent",
+    pdays >= 10  ~ "old",
+    TRUE         ~ NA_character_
+  ))
+clean_data$recency_level <- factor(clean_data$recency_level,
+                                   levels = c("never", "recent", "old"))
+
+```
+
+```{r}
+#total_contact_score = campaign + previous
+clean_data <- clean_data %>%
+  mutate(total_contact_score = campaign + previous)
+```
+
+
+
+
+After create 3 new variables : 
+```{r}
+colnames(clean_data)
+```
+"age_group","recency_level",and"total_contact_score" were added as new columns in clean_data dataset
+
+## c. Interactive visualizations of relationships
+### Create three interactive charts using Plotly
+```{r}
+library(plotly)
+```
+
+A chart comparing two categorical variables
+```{r}
+#
+# y(categorical variable) -> conversion rate(subscribed / (subscribed+not subscribe))
+summary_job_conversion_for_chart5 <- clean_data %>%
+  group_by(job) %>%
+  summarise(
+    Total_Clients = n(),
+    Subscribed_Count = sum(y == "yes"),
+    Conversion_Rate_Percent = round((Subscribed_Count / Total_Clients) * 100, 2),
+    .groups = 'drop'
+  ) %>%
+  # Order job by conversion rate for better visualization
+  mutate(job = forcats::fct_reorder(job, Conversion_Rate_Percent))
+
+# Create the Plotly chart directly
+chart1 <- plot_ly(
+  data = summary_job_conversion_for_chart5,
+  x = ~job,
+  y = ~Conversion_Rate_Percent,
+  type = 'bar',
+  color = ~job, # Color bars by job type
+  text = ~paste("Job: ", job, "<br>Total Clients: ", Total_Clients, "<br>Subscribed: ", Subscribed_Count, "<br>Conversion: ", Conversion_Rate_Percent, "%"), # Custom hover text
+  hoverinfo = "text"
+) %>%
+  layout(
+    title = "Conversion Rate by Client's Job Type",
+    xaxis = list(title = "Job Type", categoryorder = "total ascending"), # Order categories by value
+    yaxis = list(title = "Conversion Rate (%)")
+  )
+
+chart1
+```
+
+A chart comparing one numeric and one categorical
+```{r}
+#
+summary_age_by_job <- clean_data %>%
+  group_by(job) %>%
+  summarise(
+    Mean_Age = round(mean(age, na.rm = TRUE), 1),
+    .groups = 'drop'
+  ) %>%
+  # Order job by mean age for better visualization in bar chart
+  mutate(job = forcats::fct_reorder(job, Mean_Age))
+
+
+# Create the Plotly chart directly for a bar chart showing Mean Age
+chart2 <- plot_ly(
+  data = summary_age_by_job, # Use the summarized data
+  x = ~job,
+  y = ~Mean_Age,
+  type = 'bar', 
+  color = ~job, # Color bars by job type
+  text = ~paste("Job: ", job, "<br>Mean Age: ", Mean_Age), 
+  hoverinfo = "text"
+) %>%
+  layout(
+    title = "Mean Age by Job Type", 
+    xaxis = list(title = "Job Type", categoryorder = "total ascending"), # Order job types by mean age
+    yaxis = list(title = "Mean Age") 
+  )
+
+chart2
+```
+
+Multidimensional chart
+```{r}
+#
+summary_age_job_conversion <- clean_data %>%
+  group_by(age_group, job) %>%
+  summarise(
+    Total_Clients = n(),
+    Subscribed_Count = sum(y == "yes"),
+    Conversion_Rate_Percent = round((Subscribed_Count / Total_Clients) * 100, 2),
+    .groups = 'drop' # Drop grouping after summarizing
+  ) %>%
+  # Ensure age_group order
+  mutate(age_group = factor(age_group, levels = c("<30", "30-50", ">50"))) %>%
+  arrange(job, age_group) # Arrange for better presentation in the data table
+
+# Create the Plotly chart directly for grouped bars
+chart3<- plot_ly(
+  data = summary_age_job_conversion,
+  x = ~age_group,
+  y = ~Conversion_Rate_Percent,
+  color = ~job, # Group bars by job type
+  type = 'bar',
+  text = ~paste("Age Group: ", age_group,
+                "<br>Job: ", job,
+                "<br>Total Clients: ", Total_Clients,
+                "<br>Subscribed: ", Subscribed_Count,
+                "<br>Conversion: ", Conversion_Rate_Percent, "%"),
+  hoverinfo = "text"
+) %>%
+  layout(
+    title = "Conversion Rate by Age Group, Grouped by Job Type",
+    xaxis = list(title = "Age Group"),
+    yaxis = list(title = "Conversion Rate (%)"),
+    barmode = 'group' # Essential for grouped bars
+  )
+
+chart3
+```
+
+
+# 3. Insight Storytelling and Recommendations  {.tabset}
+## a.  Data storytelling through visual design
+```{r}
+summary_age_job_conversion <- clean_data %>%
+  group_by(age_group, job) %>%
+  summarise(
+    Total_Clients = n(),
+    Subscribed_Count = sum(y == "yes"),
+    Conversion_Rate_Percent = round((Subscribed_Count / Total_Clients) * 100, 2),
+    .groups = 'drop' # Drop grouping after summarizing
+  ) %>%
+  # Ensure age_group order
+  mutate(age_group = factor(age_group, levels = c("<30", "30-50", ">50"))) %>%
+  arrange(job, age_group) # Arrange for better presentation in the data table
+
+# Create the Plotly chart directly for grouped bars
+chart3<- plot_ly(
+  data = summary_age_job_conversion,
+  x = ~age_group,
+  y = ~Conversion_Rate_Percent,
+  color = ~job, # Group bars by job type
+  type = 'bar',
+  text = ~paste("Age Group: ", age_group,
+                "<br>Job: ", job,
+                "<br>Total Clients: ", Total_Clients,
+                "<br>Subscribed: ", Subscribed_Count,
+                "<br>Conversion: ", Conversion_Rate_Percent, "%"),
+  hoverinfo = "text"
+) %>%
+  layout(
+    title = "Conversion Rate by Age Group and Job Type",
+    xaxis = list(title = "Age Group"),
+    yaxis = list(title = "Conversion Rate (%)"),
+    barmode = 'group' # Essential for grouped bars
+  )
+
+chart3
+```
+
+
+
+## b. Interpret findings
+
+This chart clearly shows significant variations in conversion rates across different age groups and job types. Young students (<30) exhibit high responsiveness at around 33.33%, a trend that continues into the 30-50 age group where students convert at about 31.71%, although retired in this group show the highest rate at approximately 38%. For clients over 50, retired individuals lead with a 19.9% conversion rate. Conversely, "blue-collar" and "services" job types consistently show persistently low conversion rates across all age groups, indicating these segments are less responsive to the marketing campaign.
+
+## c. Business Recommendations
+Actively pursue collaborations with universities and educational institutions to integrate campaign marketing directly into their ecosystems, specifically aiming to engage students under 50 years old.
+
+Develop partnerships with private and government companies to offer campaign benefits to their employees nearing retirement (over 30 years old).
+
+
